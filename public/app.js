@@ -387,6 +387,26 @@ async function createYouTube(id, generation) {
     `;
   }
 }
+
+async function createRutube(videoId, generation) {
+  if (generation !== playerGeneration) return;
+  
+  const frame = document.createElement('iframe');
+  frame.allow = 'autoplay; encrypted-media; fullscreen; picture-in-picture; screen-wake-lock';
+  frame.title = 'Rutube';
+  frame.style.width = '100%';
+  frame.style.height = '100%';
+  frame.style.border = '0';
+  frame.src = `https://rutube.ru/play/embed/${videoId}/?autoStart=false`;
+  
+  frame.addEventListener('load', () => {
+    if (generation !== playerGeneration) return;
+    ready(generation); // Сообщаем сайту, что плеер загрузился
+  });
+  
+  playerContainer.appendChild(frame);
+}
+
 async function createVK(url, generation) {
   await loadLibrary('VK Video', 'https://vk.com/js/api/videoplayer.js', () => typeof window.VK?.VideoPlayer === 'function');
   if (generation !== playerGeneration) return;
