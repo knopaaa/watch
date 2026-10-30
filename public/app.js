@@ -366,8 +366,8 @@ async function createYouTube(id, generation) {
     } else {
        wrapper.innerHTML = `<div style="color:#ff5c9a; text-align:center; padding: 20px;">Ошибка: ${err.message}<br><br>Включите VPN или используйте 🖥️ Экран.</div>`;
     }
-  }
-
+  } 
+} 
 async function createVK(url, generation) {
   await loadLibrary('VK Video', 'https://vk.com/js/api/videoplayer.js', () => typeof window.VK?.VideoPlayer === 'function');
   if (generation !== playerGeneration) return;
