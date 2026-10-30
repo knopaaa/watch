@@ -334,80 +334,58 @@ async function loadVideo(video) {
 }
 async function createYouTube(id, generation) {
   if (generation !== playerGeneration) return;
-  const embed = new URL(`https://www.youtube.com/embed/${id}`);
-  embed.search = new URLSearchParams({ enablejsapi: '1', origin: location.origin, playsinline: '1', rel: '0' });
-  youtubeDiagnostic = { generation, videoId: id, embed: embed.href, events: [], errorCode: null, failed: false };
-  $('youtubeDiagnostics').classList.remove('hidden');
-  $('youtubeWatchLink').href = `https://www.youtube.com/watch?v=${id}`;
-  $('youtubeEmbedLink').href = embed.href;
-  youtubeStep('loading-api', 'Загружаем API YouTube непосредственно в твоём браузере…');
+
+  const wrapper = document.createElement('div');
+  wrapper.style.width = '100%';
+  wrapper.style.height = '100%';
+  wrapper.style.display = 'flex';
+  wrapper.style.alignItems = 'center';
+  wrapper.style.justifyContent = 'center';
+  wrapper.style.color = '#8a8a9a';
+  wrapper.textContent = 'Загрузка видео через прокси... ⏳';
+  playerContainer.appendChild(wrapper);
+
   try {
-    await loadLibrary('YouTube', 'https://www.youtube.com/iframe_api',
-      () => typeof window.YT?.Player === 'function', 'onYouTubeIframeAPIReady', 30000);
-  } catch {
+    const res = await fetch(`/api/streams/${id}`);
+    if (!res.ok) throw new Error('Прокси не смог найти видео');
+    
+    const data = await res.json();
     if (generation !== playerGeneration) return;
-    throw new Error('Не загрузился API YouTube (www.youtube.com/iframe_api). Если обычный YouTube работает, проверь, распространяется ли VPN на встроенный плеер этого сайта, и блокировщики расширений.');
+
+    wrapper.remove(); 
+
+    const video = document.createElement('video');
+    fileVideoEl = video; 
+    currentType = 'file'; 
+    
+    video.controls = true;
+    video.playsInline = true;
+    video.crossOrigin = 'anonymous';
+    video.style.width = '100%';
+    video.style.height = '100%';
+    playerContainer.appendChild(video);
+    video.src = data.video;
+
+    ['play', 'pause', 'seeked', 'ended'].forEach((event) => video.addEventListener(event, () => {
+      if (generation !== playerGeneration) return;
+      if (!video.paused) playerActionBtn.classList.add('hidden');
+      reportPlayback(!video.paused && !video.ended);
+    }));
+
+    video.addEventListener('loadedmetadata', () => ready(generation), { once: true });
+
+  } catch (err) {
+    wrapper.innerHTML = `
+      <div style="color:#ff5c9a; text-align:center; padding: 20px;">
+        <div style="font-size: 40px; margin-bottom: 10px;">🎬</div>
+        <b>YouTube заблокирован провайдером.</b><br><br>
+        <div style="font-size: 13px; opacity: 0.8; margin-bottom: 20px;">
+          Сервера обхода не справились. Включите <b>VPN</b> на компьютере, или используйте кнопку <b>🖥️ Экран</b>.
+        </div>
+        <a href="https://www.youtube.com/watch?v=${id}" target="_blank" style="display: inline-block; background: #ff2d78; color: white; text-decoration: none; padding: 10px 20px; border-radius: 8px; font-weight: bold;">Открыть на YouTube</a>
+      </div>
+    `;
   }
-  if (generation !== playerGeneration) return;
-  youtubeStep('loading-player', 'API YouTube загружен. Ждём ответа встроенного плеера…');
-  const frame = document.createElement('iframe');
-  frame.title = 'YouTube';
-  frame.allow = 'autoplay; encrypted-media; fullscreen; picture-in-picture';
-  // YouTube требует HTTP Referer/API Client Identity (ошибка 153 при его отсутствии).
-  frame.referrerPolicy = 'strict-origin-when-cross-origin';
-  frame.src = embed.href;
-  frame.addEventListener('load', () => {
-    if (generation === playerGeneration && !playerReady && youtubeDiagnostic?.stage !== 'error') {
-      youtubeStep('waiting-player', 'Документ iframe загрузился. Ждём подтверждения от API плеера…');
-    }
-  });
-  playerContainer.appendChild(frame);
-  readyTimer = setTimeout(() => youtubeFailure(
-    'API YouTube загрузился, но встроенный плеер не ответил. Проверь VPN для iframe/YouTube и расширения браузера; открой диагностическую ссылку на встроенный плеер.', generation), 45000);
-  ytPlayer = new YT.Player(frame, {
-    videoId: id,
-    playerVars: { origin: location.origin, playsinline: 1, rel: 0 },
-    events: {
-      onReady: () => ready(generation),
-      onStateChange: ({ data }) => {
-        if (generation !== playerGeneration || youtubeDiagnostic?.failed) return;
-        clearTimeout(youtubeBufferTimer);
-        const recovering = youtubeDiagnostic?.stage === 'buffering-timeout';
-        const states = { '-1': 'Ожидает запуска', 0: 'Видео завершено', 1: 'Видео воспроизводится',
-          2: 'Пауза', 3: 'Загружаются видеоданные', 5: 'Видео подготовлено' };
-        youtubeStep('state-' + data, states[data] || `Состояние плеера: ${data}`);
-        if (data === 1) {
-          playerActionBtn.classList.add('hidden');
-          if (recovering) notice();
-        }
-        if (data === 3) youtubeBufferTimer = setTimeout(() => {
-          if (generation !== playerGeneration) return;
-          const message = 'Плеер подключён, но видеоданные долго не приходят. Проверь VPN для *.googlevideo.com, попробуй другой VPN-сервер и проверь блокировщики.';
-          youtubeStep('buffering-timeout', message);
-          notice(message, 'warning');
-          $('youtubeDiagnostics').open = true;
-        }, 20000);
-        if (data === 1 || data === 2 || data === 0) reportPlayback(data === 1);
-      },
-      onAutoplayBlocked: () => {
-        if (generation !== playerGeneration || youtubeDiagnostic?.failed) return;
-        clearTimeout(youtubeBufferTimer);
-        youtubeStep('waiting-click', 'Браузер запретил автоматический запуск. Нажми «Включить просмотр» или ▶ в плеере.');
-        playbackBlocked();
-      },
-      onError: ({ data }) => {
-        const messages = {
-          2: 'YouTube: некорректный адрес или идентификатор видео (код 2).',
-          5: 'YouTube: браузер не может воспроизвести это видео (код 5). Попробуй другой браузер.',
-          100: 'YouTube: видео удалено, закрыто или недоступно (код 100).',
-          101: 'YouTube: автор запретил встраивание этого ролика на другие сайты (код 101). Проверь другой ролик.',
-          150: 'YouTube: автор запретил встраивание этого ролика на другие сайты (код 150). Проверь другой ролик.',
-          153: 'YouTube не получил идентификацию сайта/HTTP Referer (код 153). Проверь расширения, приватность браузера и фильтрацию VPN.'
-        };
-        youtubeFailure(messages[data] || `YouTube сообщил об ошибке (код ${data}). Проверь доступ к ролику и VPN.`, generation, data);
-      }
-    }
-  });
 }
 async function createVK(url, generation) {
   await loadLibrary('VK Video', 'https://vk.com/js/api/videoplayer.js', () => typeof window.VK?.VideoPlayer === 'function');
