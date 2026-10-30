@@ -72,6 +72,12 @@ button:disabled { opacity: 0.5; cursor: default; }
 .notice { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font-size: 13px; flex-shrink: 0; }
 .notice[data-kind="error"] { color: #ffaaaa; border-color: #773d48; }
 .notice[data-kind="warning"] { color: #f2cf85; }
+.youtube-diagnostics { flex-shrink: 0; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font-size: 12px; max-height: 32vh; overflow: auto; }
+.youtube-diagnostics summary { cursor: pointer; font-weight: 700; }
+.youtube-diagnostics p { margin-top: 10px; color: var(--text-dim); line-height: 1.5; }
+.diagnostic-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 10px 0; }
+.diagnostic-actions a { color: #ff82ad; }
+.youtube-diagnostics pre { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-dim); }
 
 /* ---------- ЛОГИН ---------- */
 .login {
