@@ -554,6 +554,11 @@ function validPeer(record) {
 function ensurePeer(id) {
   if (peers.has(id)) return peers.get(id);
   const pc = new RTCPeerConnection({ iceServers });
+    // Говорим браузеру: "Если сеть плохая — режь качество, но не тормози видео"
+  const transceiver = pc.addTransceiver('video', { direction: 'sendonly' });
+  if (transceiver.setCodecPreferences && window.RTCRtpReceiver) {
+    // ...
+  }
   const record = { id, pc, sessionId: screenSession.sessionId, pendingIce: [] };
   peers.set(id, record);
   if (localStream) localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
@@ -586,18 +591,51 @@ async function offerViewer(id) {
   if (!localStream || !screenSession || peers.has(id) || id === socket.id) return;
   const record = ensurePeer(id);
   try {
-    // Ограничиваем битрейт, чтобы не лагало
+    const senders = record.pc.getSenders();
+    
+    // Настраиваем видео
     const videoTrack = localStream.getVideoTracks()[0];
-    if (videoTrack) {
-      const senders = record.pc.getSenders();
-      const sender = senders.find(s => s.track === videoTrack);
-      if (sender) {
-        const params = sender.getParameters();
-        if (!params.encodings) params.encodings = [{}];
-        params.encodings[0].maxBitrate = 1500000; // 1.5 Мбит/с
-        sender.setParameters(params).catch(() => {});
+    const videoSender = senders.find(s => s.track === videoTrack);
+    if (videoSender) {
+      if (videoSender.setCodecPreferences && window.RTCRtpSender.getCapabilities) {
+        const caps = RTCRtpSender.getCapabilities('video');
+        if (caps) {
+          const h264 = caps.codecs.filter(c => c.mimeType.toLowerCase() === 'video/h264');
+          if (h264.length > 0) videoSender.setCodecPreferences(h264);
+        }
       }
+      const params = videoSender.getParameters();
+      if (!params.encodings) params.encodings = [{}];
+      params.encodings[0].maxBitrate = 1000000; 
+      params.encodings[0].maxFramerate = 15;
+      videoSender.setParameters(params).catch(() => {});
     }
+
+    // Настраиваем звук
+    const audioTrack = localStream.getAudioTracks()[0];
+    const audioSender = senders.find(s => s.track === audioTrack);
+    if (audioSender) {
+      if (audioSender.setCodecPreferences && window.RTCRtpSender.getCapabilities) {
+        const caps = RTCRtpSender.getCapabilities('audio');
+        if (caps) {
+          const opus = caps.codecs.filter(c => c.mimeType.toLowerCase() === 'audio/opus');
+          if (opus.length > 0) audioSender.setCodecPreferences(opus);
+        }
+      }
+      const aParams = audioSender.getParameters();
+      if (!aParams.encodings) aParams.encodings = [{}];
+      aParams.encodings[0].maxBitrate = 64000; // 64 кбит/с хватает для хорошего стерео
+      audioSender.setParameters(aParams).catch(() => {});
+    }
+
+    const offer = await record.pc.createOffer();
+    if (!validPeer(record)) return;
+    await record.pc.setLocalDescription(offer);
+    if (validPeer(record)) socket.emit('rtc-offer', { to: id, sessionId: record.sessionId, sdp: record.pc.localDescription.toJSON() });
+  } catch (error) {
+    if (validPeer(record)) notice('Не удалось подключить зрителя: ' + error.message, 'error');
+  }
+}
 
     const offer = await record.pc.createOffer();
     if (!validPeer(record)) return;
@@ -617,7 +655,18 @@ shareScreenBtn.addEventListener('click', async () => {
   let captured = null;
   const startingId = socket.id;
   try {
-    captured = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { max: 30 }, width: { max: 1280 }, height: { max: 720 } }, audio: true });
+    captured = await navigator.mediaDevices.getDisplayMedia({ 
+  video: { 
+    frameRate: { max: 15, ideal: 15 },
+    width: { max: 1280 }, 
+    height: { max: 720 } 
+  }, 
+  audio: {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true
+  }
+});
     if (!joined || startingId !== socket.id || !screenStarting) throw new Error('Соединение изменилось. Запусти демонстрацию заново.');
     const response = await new Promise((resolve, reject) => {
       socket.timeout(10000).emit('rtc-start', {}, (error, result) => {
