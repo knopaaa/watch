@@ -19,7 +19,59 @@ function createWatchServer() {
       credential: process.env.TURN_CREDENTIAL
     });
   }
+  // --- ПРОКСИ ДЛЯ YOUTUBE (Cobalt) ---
+  app.get('/api/streams/:videoId', async (req, res) => {
+    const { videoId } = req.params;
+    const url = `https://www.youtube.com/watch?v=${videoId}`;
+    
+    const cobaltInstances = [
+      'https://api.cobalt.tools/',
+      'https://cobalt-api.kwiatekmiki.com/',
+      'https://cobalt-api.meowing.de/'
+    ];
 
+    let lastError = '';
+
+    for (const api of cobaltInstances) {
+      try {
+        const response = await fetch(api, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify({ 
+            url: url, 
+            videoQuality: '720',
+            downloadMode: 'auto',
+            filenamePattern: 'basic'
+          })
+        });
+
+        if (!response.ok) {
+          lastError += `[${api}] Status: ${response.status}; `;
+          continue;
+        }
+
+        const data = await response.json();
+        if (data.status === 'error') {
+          lastError += `[${api}] Error: ${data.text || data.error?.code}; `;
+          continue;
+        }
+
+        if (data.url) {
+          return res.json({ video: data.url, type: 'mp4' });
+        }
+      } catch (e) {
+        lastError += `[${api}] Exception: ${e.message}; `;
+      }
+    }
+    
+    console.warn('Cobalt failed. Errors:', lastError);
+    res.status(404).json({ error: 'Не удалось найти видео', details: lastError });
+  });
+  // -----------------------------------
+  
   app.use((req, res, next) => {
     res.set('Referrer-Policy', 'strict-origin-when-cross-origin');
     next();
