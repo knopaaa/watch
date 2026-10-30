@@ -284,57 +284,61 @@ async function loadVideo(video) {
   } catch (error) { playerFailed(error.message, generation); }
 }
 async function createYouTube(id, generation) {
-  // Вместо загрузки YouTube API, мы создаем обычный <video> плеер,
-  // который будет получать видеопоток через Piped (обход блокировок).
-  
   if (generation !== playerGeneration) return;
 
   const wrapper = document.createElement('div');
   wrapper.style.width = '100%';
   wrapper.style.height = '100%';
   wrapper.style.display = 'flex';
+  wrapper.style.flexDirection = 'column';
   wrapper.style.alignItems = 'center';
   wrapper.style.justifyContent = 'center';
   wrapper.style.color = '#8a8a9a';
-  wrapper.textContent = 'Загрузка видео через Piped... ⏳';
+  wrapper.style.gap = '10px';
+  wrapper.innerHTML = '<div>Загрузка видео через Invidious... ⏳</div>';
   playerContainer.appendChild(wrapper);
 
-  const pipedInstances = [
-    'https://pipedapi.kavin.rocks',
-    'https://pipedapi.adminforge.de',
-    'https://api.piped.yt'
+  // Сервера Invidious, у которых открыт CORS для браузеров
+  const invidiousInstances = [
+    'https://inv.nadeko.net',
+    'https://invidious.nerdvpn.de',
+    'https://yewtu.be',
+    'https://invidious.f5.si',
+    'https://invidious.privacyredirect.com'
   ];
 
   let videoLoaded = false;
 
   async function tryFetchStream(index) {
     if (videoLoaded || generation !== playerGeneration) return;
-    if (index >= pipedInstances.length) {
-      playerFailed('Не удалось загрузить видео ни через один сервер Piped. Возможно, видео заблокировано или удалено.', generation);
+    if (index >= invidiousInstances.length) {
+      wrapper.innerHTML = '<div style="color:#ff5c9a; text-align:center; padding: 20px;">Ошибка: Все сервера Invidious недоступны.<br><br>Включите VPN или используйте 🖥️ Экран.</div>';
       return;
     }
 
-    const api = pipedInstances[index];
+    const api = invidiousInstances[index];
+    wrapper.querySelector('div').textContent = `Загрузка... (сервер ${index + 1} из ${invidiousInstances.length})`;
+    
     try {
-      const res = await fetch(`${api}/streams/${id}`);
+      const res = await fetch(`${api}/api/v1/videos/${id}`);
       if (!res.ok) throw new Error('API Error');
       
       const data = await res.json();
-      // Ищем лучший видеопоток (без звука)
-      const videoStream = data.videoStreams.find(s => s.videoOnly) || data.videoStreams[0];
-      // Ищем аудиопоток
-      const audioStream = data.audioStreams.find(s => s.audioOnly) || data.audioStreams[0];
+      if (data.error) throw new Error(data.error);
+      
+      // Ищем лучший видеопоток
+      const format = data.formatStreams?.find(f => f.container === 'mp4' && f.resolution === '720p') 
+                  || data.formatStreams?.find(f => f.container === 'mp4') 
+                  || data.formatStreams?.[0];
 
-      if (!videoStream) throw new Error('No video stream');
+      if (!format) throw new Error('No video stream');
       if (generation !== playerGeneration) return;
 
       videoLoaded = true;
-      wrapper.remove(); // убираем заглушку
+      wrapper.remove(); 
 
-      // Создаем <video> элемент, который отлично встроится в твою новую логику
       const video = document.createElement('video');
       fileVideoEl = video; 
-      // Притворяемся, что это файл, чтобы твоя логика синхронизации (applySync) работала с ним напрямую
       currentType = 'file'; 
       
       video.controls = true;
@@ -344,37 +348,9 @@ async function createYouTube(id, generation) {
       video.style.height = '100%';
       playerContainer.appendChild(video);
 
-      // Загружаем видео (обычно это HLS .m3u8)
-      if (window.Hls && Hls.isSupported()) {
-        hlsInstance = new Hls({ maxBufferLength: 30 });
-        hlsInstance.loadSource(videoStream.url);
-        hlsInstance.attachMedia(video);
-      } else {
-        video.src = videoStream.url;
-      }
+      // Invidious отдает видео и звук вместе в mp4, поэтому HLS не нужен
+      video.src = format.url;
 
-      // Связываем отдельный аудиопоток (Piped разделяет видео и звук)
-      if (audioStream) {
-        const audioEl = new Audio();
-        audioEl.src = audioStream.url;
-        audioEl.crossOrigin = 'anonymous';
-        
-        video.addEventListener('play', () => { audioEl.currentTime = video.currentTime; audioEl.play(); });
-        video.addEventListener('pause', () => audioEl.pause());
-        video.addEventListener('seeked', () => { audioEl.currentTime = video.currentTime; });
-        video.addEventListener('timeupdate', () => {
-          if (Math.abs(audioEl.currentTime - video.currentTime) > 0.3) {
-            audioEl.currentTime = video.currentTime;
-          }
-        });
-        video.volume = 1;
-        audioEl.volume = 1;
-        
-        // Сохраняем ссылку на аудио, чтобы останавливать при смене видео
-        video._audioEl = audioEl; 
-      }
-
-      // Подключаем твои обработчики событий для синхронизации из новой версии
       ['play', 'pause', 'seeked', 'ended'].forEach((event) => video.addEventListener(event, () => {
         if (generation !== playerGeneration) return;
         if (!video.paused) playerActionBtn.classList.add('hidden');
@@ -384,13 +360,14 @@ async function createYouTube(id, generation) {
       video.addEventListener('loadedmetadata', () => ready(generation), { once: true });
 
     } catch (err) {
-      console.warn(`Piped server ${api} failed, trying next...`);
-      tryFetchStream(index + 1); // Пробуем следующий сервер
+      console.warn(`Invidious server ${api} failed:`, err);
+      setTimeout(() => tryFetchStream(index + 1), 500); 
     }
   }
 
   tryFetchStream(0);
 }
+
 async function createVK(url, generation) {
   await loadLibrary('VK Video', 'https://vk.com/js/api/videoplayer.js', () => typeof window.VK?.VideoPlayer === 'function');
   if (generation !== playerGeneration) return;
