@@ -1,6 +1,6 @@
 {
   "name": "watch-together",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
