@@ -21,6 +21,46 @@ function createWatchServer() {
   }
 
   // Проверять актуальность HTML/JS при каждом открытии, включая service worker.
+  // Наш собственный прокси для обхода CORS и блокировок
+app.get('/api/streams/:videoId', async (req, res) => {
+  const { videoId } = req.params;
+  const instances = [
+    'https://inv.nadeko.net',
+    'https://invidious.nerdvpn.de',
+    'https://yewtu.be',
+    'https://pipedapi.kavin.rocks',
+    'https://pipedapi.adminforge.de'
+  ];
+
+  for (const api of instances) {
+    try {
+      const isPiped = api.includes('piped');
+      const url = isPiped ? `${api}/streams/${videoId}` : `${api}/api/v1/videos/${videoId}`;
+      
+      const response = await fetch(url);
+      if (!response.ok) continue;
+      
+      const data = await response.json();
+      if (data.error) continue;
+      
+      if (isPiped) {
+        const videoStream = data.videoStreams?.find(s => s.videoOnly) || data.videoStreams?.[0];
+        const audioStream = data.audioStreams?.find(s => s.audioOnly) || data.audioStreams?.[0];
+        if (videoStream) {
+          return res.json({ video: videoStream.url, audio: audioStream?.url, type: 'piped' });
+        }
+      } else {
+        const format = data.formatStreams?.find(f => f.container === 'mp4') || data.formatStreams?.[0];
+        if (format) {
+          return res.json({ video: format.url, type: 'mp4' });
+        }
+      }
+    } catch (e) {
+      // Игнорируем ошибку и пробуем следующий сервер
+    }
+  }
+  res.status(404).json({ error: 'Не удалось найти видео ни на одном сервере' });
+});
   app.use(express.static(path.join(__dirname, 'public'), { maxAge: 0 }));
   app.get('/r/:roomId', (req, res) => {
     res.set('Cache-Control', 'no-cache');
