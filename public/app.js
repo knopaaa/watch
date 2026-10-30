@@ -326,6 +326,7 @@ async function loadVideo(video) {
   try {
     if (video.type === 'youtube') await createYouTube(video.id, generation);
     else if (video.type === 'vk') await createVK(video.id, generation);
+    else if (video.type === 'rutube') await createRutube(video.id, generation); // <--- ДОБАВЬ ВОТ ЭТУ СТРОКУ
     else if (video.type === 'file') await createFile(video.id, generation);
   } catch (error) {
     if (video.type === 'youtube') youtubeFailure(error.message, generation);
