@@ -1,4 +1,4 @@
-// Watch Together 3.0 — один источник времени, восстановление комнаты, адресный WebRTC.
+// Watch Together 3.0.1 — официальный YouTube iframe и диагностика подключения.
 const socket = io({ autoConnect: false });
 const $ = (id) => document.getElementById(id);
 const loginEl = $('login');
@@ -174,7 +174,7 @@ socket.on('reaction', ({ emoji }) => {
 
 // ---------- ЗАГРУЗКА API (не блокирует чат и вход, есть тайм-аут и повтор) ----------
 const libraries = new Map();
-function loadLibrary(key, src, available, callbackName) {
+function loadLibrary(key, src, available, callbackName, timeout = 15000) {
   if (available()) return Promise.resolve();
   if (libraries.has(key)) return libraries.get(key);
   const promise = new Promise((resolve, reject) => {
@@ -187,7 +187,7 @@ function loadLibrary(key, src, available, callbackName) {
       if (error) { script.remove(); reject(error); }
       else resolve();
     };
-    const timer = setTimeout(() => finish(new Error(`Не удалось загрузить ${key}. Проверь доступ к сервису и расширения браузера.`)), 15000);
+    const timer = setTimeout(() => finish(new Error(`Не удалось загрузить ${key}. Проверь доступ к сервису и расширения браузера.`)), timeout);
     if (callbackName) window[callbackName] = () => finish(available() ? null : new Error(`API ${key} не готов.`));
     script.src = src;
     script.async = true;
@@ -210,6 +210,44 @@ let hlsInstance = null;
 let vkAd = false;
 let suppressUntil = 0;
 let readyTimer = null;
+let youtubeBufferTimer = null;
+let youtubeDiagnostic = null;
+
+function youtubeStep(stage, message, code = null) {
+  if (!youtubeDiagnostic || youtubeDiagnostic.generation !== playerGeneration) return;
+  youtubeDiagnostic.stage = stage;
+  if (code !== null) youtubeDiagnostic.errorCode = code;
+  youtubeDiagnostic.events.push({ at: new Date().toISOString(), stage, message });
+  if (youtubeDiagnostic.events.length > 25) youtubeDiagnostic.events.shift();
+  $('youtubeStatus').textContent = message;
+  $('youtubeReport').textContent = JSON.stringify({
+    version: '3.0.1', site: location.origin, videoId: youtubeDiagnostic.videoId,
+    api: 'https://www.youtube.com/iframe_api', embed: youtubeDiagnostic.embed,
+    stage, errorCode: youtubeDiagnostic.errorCode,
+    browser: navigator.userAgent, online: navigator.onLine,
+    events: youtubeDiagnostic.events
+  }, null, 2);
+}
+function youtubeFailure(message, generation, code = null) {
+  if (generation !== playerGeneration) return;
+  clearTimeout(youtubeBufferTimer);
+  playerReady = false;
+  if (youtubeDiagnostic) youtubeDiagnostic.failed = true;
+  youtubeStep('error', message, code);
+  $('youtubeDiagnostics').open = true;
+  playerFailed(message, generation);
+}
+$('youtubeCopyBtn').addEventListener('click', async () => {
+  const report = $('youtubeReport').textContent;
+  try {
+    await navigator.clipboard.writeText(report);
+    $('youtubeCopyBtn').textContent = 'Скопировано';
+    setTimeout(() => { $('youtubeCopyBtn').textContent = 'Скопировать диагностику'; }, 1500);
+  } catch { prompt('Скопируй диагностику:', report); }
+});
+$('youtubeRetryBtn').addEventListener('click', () => {
+  if (roomState?.video?.type === 'youtube') loadVideo(roomState.video);
+});
 
 function desiredState() {
   if (!roomState) return { time: 0, playing: false };
@@ -234,27 +272,25 @@ function clearPlayerArea() {
   playerGeneration++;
   playerReady = false;
   clearTimeout(readyTimer);
+  clearTimeout(youtubeBufferTimer);
   readyTimer = null;
   suppressUntil = Date.now() + 1500;
-    if (ytPlayer?.destroy) { try { ytPlayer.destroy(); } catch {} }
+  if (ytPlayer?.destroy) { try { ytPlayer.destroy(); } catch {} }
   if (vkPlayer?.destroy) { try { vkPlayer.destroy(); } catch {} }
   if (hlsInstance) hlsInstance.destroy();
-  
   if (fileVideoEl) {
     fileVideoEl.pause();
-    if (fileVideoEl._audioEl) {
-      fileVideoEl._audioEl.pause();
-      fileVideoEl._audioEl.src = '';
-    }
     fileVideoEl.removeAttribute('src');
     fileVideoEl.load();
   }
-  
   ytPlayer = vkPlayer = fileVideoEl = hlsInstance = null;
   vkAd = false;
   currentType = null;
   playerContainer.innerHTML = '';
   playerActionBtn.classList.add('hidden');
+  youtubeDiagnostic = null;
+  $('youtubeDiagnostics').classList.add('hidden');
+  $('youtubeDiagnostics').open = false;
 }
 function playbackBlocked() {
   playerActionBtn.classList.remove('hidden');
@@ -269,6 +305,12 @@ function ready(generation) {
   if (generation !== playerGeneration) return;
   clearTimeout(readyTimer);
   playerReady = true;
+  if (currentType === 'youtube') {
+    youtubeDiagnostic.failed = false;
+    youtubeDiagnostic.errorCode = null;
+    youtubeStep('ready', 'Официальный плеер YouTube подключён. Нажми ▶ для просмотра.');
+    notice();
+  }
   applySync();
 }
 async function loadVideo(video) {
@@ -278,96 +320,95 @@ async function loadVideo(video) {
   if (!video) return;
   const generation = playerGeneration;
   currentType = video.type;
-  readyTimer = setTimeout(() => playerFailed('Плеер не ответил. Проверь доступ к видео; для VK попробуй ссылку из «Поделиться → Экспорт».', generation), 25000);
+  if (video.type !== 'youtube') {
+    readyTimer = setTimeout(() => playerFailed('Плеер не ответил. Проверь доступ к видео; для VK попробуй ссылку из «Поделиться → Экспорт».', generation), 25000);
+  }
   try {
     if (video.type === 'youtube') await createYouTube(video.id, generation);
     else if (video.type === 'vk') await createVK(video.id, generation);
     else if (video.type === 'file') await createFile(video.id, generation);
-  } catch (error) { playerFailed(error.message, generation); }
+  } catch (error) {
+    if (video.type === 'youtube') youtubeFailure(error.message, generation);
+    else playerFailed(error.message, generation);
+  }
 }
 async function createYouTube(id, generation) {
   if (generation !== playerGeneration) return;
-
-  const wrapper = document.createElement('div');
-  wrapper.style.width = '100%';
-  wrapper.style.height = '100%';
-  wrapper.style.display = 'flex';
-  wrapper.style.alignItems = 'center';
-  wrapper.style.justifyContent = 'center';
-  wrapper.style.color = '#8a8a9a';
-  wrapper.textContent = 'Загрузка видео через прокси... ⏳';
-  playerContainer.appendChild(wrapper);
-
+  const embed = new URL(`https://www.youtube.com/embed/${id}`);
+  embed.search = new URLSearchParams({ enablejsapi: '1', origin: location.origin, playsinline: '1', rel: '0' });
+  youtubeDiagnostic = { generation, videoId: id, embed: embed.href, events: [], errorCode: null, failed: false };
+  $('youtubeDiagnostics').classList.remove('hidden');
+  $('youtubeWatchLink').href = `https://www.youtube.com/watch?v=${id}`;
+  $('youtubeEmbedLink').href = embed.href;
+  youtubeStep('loading-api', 'Загружаем API YouTube непосредственно в твоём браузере…');
   try {
-    // Обращаемся к НАШЕМУ серверу, а не к чужим API (обходим CORS)
-    const res = await fetch(`/api/streams/${id}`);
-    if (!res.ok) throw new Error('Прокси не смог найти видео');
-    
-    const data = await res.json();
+    await loadLibrary('YouTube', 'https://www.youtube.com/iframe_api',
+      () => typeof window.YT?.Player === 'function', 'onYouTubeIframeAPIReady', 30000);
+  } catch {
     if (generation !== playerGeneration) return;
-
-    wrapper.remove(); 
-
-    const video = document.createElement('video');
-    fileVideoEl = video; 
-    currentType = 'file'; 
-    
-    video.controls = true;
-    video.playsInline = true;
-    video.crossOrigin = 'anonymous';
-    video.style.width = '100%';
-    video.style.height = '100%';
-    playerContainer.appendChild(video);
-
-    if (data.type === 'piped') {
-      // Если видео через Piped, включаем HLS (так как там видео и звук разделены)
-      if (window.Hls && Hls.isSupported()) {
-        hlsInstance = new Hls({ maxBufferLength: 30 });
-        hlsInstance.loadSource(data.video);
-        hlsInstance.attachMedia(video);
-      } else {
-        video.src = data.video;
-      }
-      
-      if (data.audio) {
-        const audioEl = new Audio();
-        audioEl.src = data.audio;
-        video._audioEl = audioEl; 
-        
-        video.addEventListener('play', () => { audioEl.currentTime = video.currentTime; audioEl.play(); });
-        video.addEventListener('pause', () => audioEl.pause());
-        video.addEventListener('seeked', () => { audioEl.currentTime = video.currentTime; });
-        video.addEventListener('timeupdate', () => {
-          if (Math.abs(audioEl.currentTime - video.currentTime) > 0.3) {
-            audioEl.currentTime = video.currentTime;
-          }
-        });
-      }
-    } else {
-      // Если видео через Invidious, это готовый mp4 со звуком
-      video.src = data.video;
+    throw new Error('Не загрузился API YouTube (www.youtube.com/iframe_api). Если обычный YouTube работает, проверь, распространяется ли VPN на встроенный плеер этого сайта, и блокировщики расширений.');
+  }
+  if (generation !== playerGeneration) return;
+  youtubeStep('loading-player', 'API YouTube загружен. Ждём ответа встроенного плеера…');
+  const frame = document.createElement('iframe');
+  frame.title = 'YouTube';
+  frame.allow = 'autoplay; encrypted-media; fullscreen; picture-in-picture';
+  // YouTube требует HTTP Referer/API Client Identity (ошибка 153 при его отсутствии).
+  frame.referrerPolicy = 'strict-origin-when-cross-origin';
+  frame.src = embed.href;
+  frame.addEventListener('load', () => {
+    if (generation === playerGeneration && !playerReady && youtubeDiagnostic?.stage !== 'error') {
+      youtubeStep('waiting-player', 'Документ iframe загрузился. Ждём подтверждения от API плеера…');
     }
-
-    ['play', 'pause', 'seeked', 'ended'].forEach((event) => video.addEventListener(event, () => {
-      if (generation !== playerGeneration) return;
-      if (!video.paused) playerActionBtn.classList.add('hidden');
-      reportPlayback(!video.paused && !video.ended);
-    }));
-
-    video.addEventListener('loadedmetadata', () => ready(generation), { once: true });
-
-    } catch (err) {
-    console.error("Ошибка загрузки видео:", err);
-    // Если сервер вернул 404, попробуем прочитать ответ
-    if (err.message === 'Прокси не смог найти видео') {
-       const res = await fetch(`/api/streams/${id}`);
-       const errData = await res.json();
-       wrapper.innerHTML = `<div style="color:#ff5c9a; text-align:center; padding: 20px;">Ошибка загрузки.<br><br><small style="opacity:0.8">${errData.details || 'Сервера перегружены'}</small><br><br>Включите VPN или используйте 🖥️ Экран.</div>`;
-    } else {
-       wrapper.innerHTML = `<div style="color:#ff5c9a; text-align:center; padding: 20px;">Ошибка: ${err.message}<br><br>Включите VPN или используйте 🖥️ Экран.</div>`;
+  });
+  playerContainer.appendChild(frame);
+  readyTimer = setTimeout(() => youtubeFailure(
+    'API YouTube загрузился, но встроенный плеер не ответил. Проверь VPN для iframe/YouTube и расширения браузера; открой диагностическую ссылку на встроенный плеер.', generation), 45000);
+  ytPlayer = new YT.Player(frame, {
+    videoId: id,
+    playerVars: { origin: location.origin, playsinline: 1, rel: 0 },
+    events: {
+      onReady: () => ready(generation),
+      onStateChange: ({ data }) => {
+        if (generation !== playerGeneration || youtubeDiagnostic?.failed) return;
+        clearTimeout(youtubeBufferTimer);
+        const recovering = youtubeDiagnostic?.stage === 'buffering-timeout';
+        const states = { '-1': 'Ожидает запуска', 0: 'Видео завершено', 1: 'Видео воспроизводится',
+          2: 'Пауза', 3: 'Загружаются видеоданные', 5: 'Видео подготовлено' };
+        youtubeStep('state-' + data, states[data] || `Состояние плеера: ${data}`);
+        if (data === 1) {
+          playerActionBtn.classList.add('hidden');
+          if (recovering) notice();
+        }
+        if (data === 3) youtubeBufferTimer = setTimeout(() => {
+          if (generation !== playerGeneration) return;
+          const message = 'Плеер подключён, но видеоданные долго не приходят. Проверь VPN для *.googlevideo.com, попробуй другой VPN-сервер и проверь блокировщики.';
+          youtubeStep('buffering-timeout', message);
+          notice(message, 'warning');
+          $('youtubeDiagnostics').open = true;
+        }, 20000);
+        if (data === 1 || data === 2 || data === 0) reportPlayback(data === 1);
+      },
+      onAutoplayBlocked: () => {
+        if (generation !== playerGeneration || youtubeDiagnostic?.failed) return;
+        clearTimeout(youtubeBufferTimer);
+        youtubeStep('waiting-click', 'Браузер запретил автоматический запуск. Нажми «Включить просмотр» или ▶ в плеере.');
+        playbackBlocked();
+      },
+      onError: ({ data }) => {
+        const messages = {
+          2: 'YouTube: некорректный адрес или идентификатор видео (код 2).',
+          5: 'YouTube: браузер не может воспроизвести это видео (код 5). Попробуй другой браузер.',
+          100: 'YouTube: видео удалено, закрыто или недоступно (код 100).',
+          101: 'YouTube: автор запретил встраивание этого ролика на другие сайты (код 101). Проверь другой ролик.',
+          150: 'YouTube: автор запретил встраивание этого ролика на другие сайты (код 150). Проверь другой ролик.',
+          153: 'YouTube не получил идентификацию сайта/HTTP Referer (код 153). Проверь расширения, приватность браузера и фильтрацию VPN.'
+        };
+        youtubeFailure(messages[data] || `YouTube сообщил об ошибке (код ${data}). Проверь доступ к ролику и VPN.`, generation, data);
+      }
     }
-  } 
-} 
+  });
+}
 async function createVK(url, generation) {
   await loadLibrary('VK Video', 'https://vk.com/js/api/videoplayer.js', () => typeof window.VK?.VideoPlayer === 'function');
   if (generation !== playerGeneration) return;
