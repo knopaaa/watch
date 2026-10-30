@@ -247,6 +247,10 @@ function clearPlayerArea() {
   ytPlayer = vkPlayer = fileVideoEl = hlsInstance = null;
   vkAd = false;
   currentType = null;
+    if (fileVideoEl && fileVideoEl._audioEl) {
+    fileVideoEl._audioEl.pause();
+    fileVideoEl._audioEl.src = '';
+  }
   playerContainer.innerHTML = '';
   playerActionBtn.classList.add('hidden');
 }
@@ -280,34 +284,112 @@ async function loadVideo(video) {
   } catch (error) { playerFailed(error.message, generation); }
 }
 async function createYouTube(id, generation) {
-  await loadLibrary('YouTube', 'https://www.youtube.com/iframe_api', () => typeof window.YT?.Player === 'function', 'onYouTubeIframeAPIReady');
+  // Вместо загрузки YouTube API, мы создаем обычный <video> плеер,
+  // который будет получать видеопоток через Piped (обход блокировок).
+  
   if (generation !== playerGeneration) return;
-  const el = document.createElement('div');
-  playerContainer.appendChild(el);
-  ytPlayer = new YT.Player(el, {
-    videoId: id,
-    width: '100%', height: '100%',
-    playerVars: { rel: 0, playsinline: 1, origin: location.origin },
-    events: {
-      onReady: () => ready(generation),
-      onStateChange: ({ data }) => {
-        if (generation !== playerGeneration) return;
-        if (data === 1) playerActionBtn.classList.add('hidden');
-        if (data === 1 || data === 2 || data === 0) reportPlayback(data === 1);
-      },
-      onAutoplayBlocked: () => { if (generation === playerGeneration) playbackBlocked(); },
-      onError: ({ data }) => {
-        const reasons = {
-          2: 'Некорректная ссылка YouTube.', 5: 'Браузер не может воспроизвести это видео YouTube.',
-          100: 'Видео YouTube удалено или закрыто.',
-          101: 'Автор запретил просмотр этого видео на других сайтах.',
-          150: 'Автор запретил просмотр этого видео на других сайтах.',
-          153: 'YouTube не получил адрес сайта. Проверь расширения, блокирующие Referer.'
-        };
-        playerFailed(reasons[data] || `Ошибка YouTube (${data}).`, generation);
-      }
+
+  const wrapper = document.createElement('div');
+  wrapper.style.width = '100%';
+  wrapper.style.height = '100%';
+  wrapper.style.display = 'flex';
+  wrapper.style.alignItems = 'center';
+  wrapper.style.justifyContent = 'center';
+  wrapper.style.color = '#8a8a9a';
+  wrapper.textContent = 'Загрузка видео через Piped... ⏳';
+  playerContainer.appendChild(wrapper);
+
+  const pipedInstances = [
+    'https://pipedapi.kavin.rocks',
+    'https://pipedapi.adminforge.de',
+    'https://api.piped.yt'
+  ];
+
+  let videoLoaded = false;
+
+  async function tryFetchStream(index) {
+    if (videoLoaded || generation !== playerGeneration) return;
+    if (index >= pipedInstances.length) {
+      playerFailed('Не удалось загрузить видео ни через один сервер Piped. Возможно, видео заблокировано или удалено.', generation);
+      return;
     }
-  });
+
+    const api = pipedInstances[index];
+    try {
+      const res = await fetch(`${api}/streams/${id}`);
+      if (!res.ok) throw new Error('API Error');
+      
+      const data = await res.json();
+      // Ищем лучший видеопоток (без звука)
+      const videoStream = data.videoStreams.find(s => s.videoOnly) || data.videoStreams[0];
+      // Ищем аудиопоток
+      const audioStream = data.audioStreams.find(s => s.audioOnly) || data.audioStreams[0];
+
+      if (!videoStream) throw new Error('No video stream');
+      if (generation !== playerGeneration) return;
+
+      videoLoaded = true;
+      wrapper.remove(); // убираем заглушку
+
+      // Создаем <video> элемент, который отлично встроится в твою новую логику
+      const video = document.createElement('video');
+      fileVideoEl = video; 
+      // Притворяемся, что это файл, чтобы твоя логика синхронизации (applySync) работала с ним напрямую
+      currentType = 'file'; 
+      
+      video.controls = true;
+      video.playsInline = true;
+      video.crossOrigin = 'anonymous';
+      video.style.width = '100%';
+      video.style.height = '100%';
+      playerContainer.appendChild(video);
+
+      // Загружаем видео (обычно это HLS .m3u8)
+      if (window.Hls && Hls.isSupported()) {
+        hlsInstance = new Hls({ maxBufferLength: 30 });
+        hlsInstance.loadSource(videoStream.url);
+        hlsInstance.attachMedia(video);
+      } else {
+        video.src = videoStream.url;
+      }
+
+      // Связываем отдельный аудиопоток (Piped разделяет видео и звук)
+      if (audioStream) {
+        const audioEl = new Audio();
+        audioEl.src = audioStream.url;
+        audioEl.crossOrigin = 'anonymous';
+        
+        video.addEventListener('play', () => { audioEl.currentTime = video.currentTime; audioEl.play(); });
+        video.addEventListener('pause', () => audioEl.pause());
+        video.addEventListener('seeked', () => { audioEl.currentTime = video.currentTime; });
+        video.addEventListener('timeupdate', () => {
+          if (Math.abs(audioEl.currentTime - video.currentTime) > 0.3) {
+            audioEl.currentTime = video.currentTime;
+          }
+        });
+        video.volume = 1;
+        audioEl.volume = 1;
+        
+        // Сохраняем ссылку на аудио, чтобы останавливать при смене видео
+        video._audioEl = audioEl; 
+      }
+
+      // Подключаем твои обработчики событий для синхронизации из новой версии
+      ['play', 'pause', 'seeked', 'ended'].forEach((event) => video.addEventListener(event, () => {
+        if (generation !== playerGeneration) return;
+        if (!video.paused) playerActionBtn.classList.add('hidden');
+        reportPlayback(!video.paused && !video.ended);
+      }));
+
+      video.addEventListener('loadedmetadata', () => ready(generation), { once: true });
+
+    } catch (err) {
+      console.warn(`Piped server ${api} failed, trying next...`);
+      tryFetchStream(index + 1); // Пробуем следующий сервер
+    }
+  }
+
+  tryFetchStream(0);
 }
 async function createVK(url, generation) {
   await loadLibrary('VK Video', 'https://vk.com/js/api/videoplayer.js', () => typeof window.VK?.VideoPlayer === 'function');
