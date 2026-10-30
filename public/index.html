@@ -4,12 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="theme-color" content="#0a0a0f">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
   <title>Watch Together 🎬</title>
   <link rel="manifest" href="/manifest.json">
   <link rel="apple-touch-icon" href="/icons/icon-192.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <link rel="stylesheet" href="/style.css?v=3.0.0">
+  <link rel="stylesheet" href="/style.css?v=3.0.1">
 </head>
 <body>
   <!-- ЭКРАН ВХОДА -->
@@ -34,7 +35,7 @@
         <button id="copyLinkBtn" class="icon-btn" title="Скопировать ссылку">🔗</button>
       </div>
       <span id="connectionStatus" class="connection-status" role="status">Подключаемся…</span>
-      <span class="app-version">v3.0.0</span>
+      <span class="app-version">v3.0.1</span>
       <div class="users" id="usersList"></div>
       <button id="leaveBtn" class="icon-btn danger">Выйти</button>
     </header>
@@ -52,6 +53,20 @@
           <button id="playerActionBtn" class="icon-btn hidden">▶ Включить просмотр</button>
         </div>
         <p id="notice" class="notice hidden" role="status" aria-live="polite"></p>
+
+        <details id="youtubeDiagnostics" class="youtube-diagnostics hidden">
+          <summary>Диагностика YouTube</summary>
+          <p id="youtubeStatus" role="status"></p>
+          <p>VPN должен пропускать встроенный YouTube на этом сайте, а также youtube.com, ytimg.com и googlevideo.com. Работа youtube.com в отдельной вкладке ещё не подтверждает доступность iframe.</p>
+          <div class="diagnostic-actions">
+            <a href="https://www.youtube.com/iframe_api" target="_blank" rel="noopener" referrerpolicy="strict-origin-when-cross-origin">Открыть скрипт API ↗</a>
+            <a id="youtubeWatchLink" target="_blank" rel="noopener" referrerpolicy="strict-origin-when-cross-origin">Открыть ролик на YouTube ↗</a>
+            <a id="youtubeEmbedLink" target="_blank" rel="noopener" referrerpolicy="strict-origin-when-cross-origin">Открыть встроенный плеер ↗</a>
+            <button id="youtubeRetryBtn" class="icon-btn">Повторить подключение</button>
+            <button id="youtubeCopyBtn" class="icon-btn">Скопировать диагностику</button>
+          </div>
+          <pre id="youtubeReport"></pre>
+        </details>
 
         <div class="player-wrap" id="playerWrap">
           <div id="playerContainer"></div>
@@ -97,7 +112,7 @@
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
-  <script src="/video-source.js?v=3.0.0"></script>
-  <script src="/app.js?v=3.0.0"></script>
+  <script src="/video-source.js?v=3.0.1"></script>
+  <script src="/app.js?v=3.0.1"></script>
 </body>
 </html>
