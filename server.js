@@ -24,53 +24,40 @@ function createWatchServer() {
   // Наш собственный прокси для обхода CORS и блокировок
 app.get('/api/streams/:videoId', async (req, res) => {
   const { videoId } = req.params;
+  const url = `https://www.youtube.com/watch?v=${videoId}`;
   
-  // Пробуем сначала Piped, потом Invidious
-  const instances = [
-    'https://pipedapi.reallyaweso.me',
-    'https://pipedapi.leptons.xyz',
-    'https://pipedapi.drgns.space',
-    'https://pipedapi.ducks.party',
-    'https://inv.nadeko.net',
-    'https://invidious.nerdvpn.de',
-    'https://invidious.jing.rocks',
-    'https://invidious.f5.si',
-    'https://yewtu.be'
+  // Используем Cobalt
+  const cobaltInstances = [
+    'https://api.cobalt.tools/api/json',
+    'https://co.wuk.sh/api/json'
   ];
 
   let lastError = '';
 
-  for (const api of instances) {
+  for (const api of cobaltInstances) {
     try {
-      const isPiped = api.includes('piped');
-      const url = isPiped ? `${api}/streams/${videoId}` : `${api}/api/v1/videos/${videoId}`;
-      
-      const response = await fetch(url, { 
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+      const response = await fetch(api, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({ url: url, vQuality: '720' })
       });
-      
+
       if (!response.ok) {
         lastError += `[${api}] Status: ${response.status}; `;
         continue;
       }
-      
+
       const data = await response.json();
-      if (data.error) {
-        lastError += `[${api}] Error: ${data.error}; `;
+      if (data.status === 'error') {
+        lastError += `[${api}] Error: ${data.text}; `;
         continue;
       }
-      
-      if (isPiped) {
-        const videoStream = data.videoStreams?.find(s => s.videoOnly) || data.videoStreams?.[0];
-        const audioStream = data.audioStreams?.find(s => s.audioOnly) || data.audioStreams?.[0];
-        if (videoStream) {
-          return res.json({ video: videoStream.url, audio: audioStream?.url, type: 'piped' });
-        }
-      } else {
-        const format = data.formatStreams?.find(f => f.container === 'mp4') || data.formatStreams?.[0];
-        if (format) {
-          return res.json({ video: format.url, type: 'mp4' });
-        }
+
+      if (data.url) {
+        return res.json({ video: data.url, type: 'mp4' });
       }
     } catch (e) {
       lastError += `[${api}] Exception: ${e.message}; `;
