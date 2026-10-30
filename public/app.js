@@ -356,10 +356,17 @@ async function createYouTube(id, generation) {
 
     video.addEventListener('loadedmetadata', () => ready(generation), { once: true });
 
-  } catch (err) {
-    wrapper.innerHTML = '<div style="color:#ff5c9a; text-align:center; padding: 20px;">Не удалось загрузить видео.<br><br>Сервера временно недоступны. Включите VPN или используйте 🖥️ Экран.</div>';
+    } catch (err) {
+    console.error("Ошибка загрузки видео:", err);
+    // Если сервер вернул 404, попробуем прочитать ответ
+    if (err.message === 'Прокси не смог найти видео') {
+       const res = await fetch(`/api/streams/${id}`);
+       const errData = await res.json();
+       wrapper.innerHTML = `<div style="color:#ff5c9a; text-align:center; padding: 20px;">Ошибка загрузки.<br><br><small style="opacity:0.8">${errData.details || 'Сервера перегружены'}</small><br><br>Включите VPN или используйте 🖥️ Экран.</div>`;
+    } else {
+       wrapper.innerHTML = `<div style="color:#ff5c9a; text-align:center; padding: 20px;">Ошибка: ${err.message}<br><br>Включите VPN или используйте 🖥️ Экран.</div>`;
+    }
   }
-}
 
 async function createVK(url, generation) {
   await loadLibrary('VK Video', 'https://vk.com/js/api/videoplayer.js', () => typeof window.VK?.VideoPlayer === 'function');
