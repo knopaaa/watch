@@ -236,21 +236,23 @@ function clearPlayerArea() {
   clearTimeout(readyTimer);
   readyTimer = null;
   suppressUntil = Date.now() + 1500;
-  if (ytPlayer?.destroy) { try { ytPlayer.destroy(); } catch {} }
+    if (ytPlayer?.destroy) { try { ytPlayer.destroy(); } catch {} }
   if (vkPlayer?.destroy) { try { vkPlayer.destroy(); } catch {} }
   if (hlsInstance) hlsInstance.destroy();
+  
   if (fileVideoEl) {
     fileVideoEl.pause();
+    if (fileVideoEl._audioEl) {
+      fileVideoEl._audioEl.pause();
+      fileVideoEl._audioEl.src = '';
+    }
     fileVideoEl.removeAttribute('src');
     fileVideoEl.load();
   }
+  
   ytPlayer = vkPlayer = fileVideoEl = hlsInstance = null;
   vkAd = false;
   currentType = null;
-    if (fileVideoEl && fileVideoEl._audioEl) {
-    fileVideoEl._audioEl.pause();
-    fileVideoEl._audioEl.src = '';
-  }
   playerContainer.innerHTML = '';
   playerActionBtn.classList.add('hidden');
 }
@@ -637,14 +639,6 @@ async function offerViewer(id) {
   }
 }
 
-    const offer = await record.pc.createOffer();
-    if (!validPeer(record)) return;
-    await record.pc.setLocalDescription(offer);
-    if (validPeer(record)) socket.emit('rtc-offer', { to: id, sessionId: record.sessionId, sdp: record.pc.localDescription.toJSON() });
-  } catch (error) {
-    if (validPeer(record)) notice('Не удалось подключить зрителя: ' + error.message, 'error');
-  }
-}
 shareScreenBtn.addEventListener('click', async () => {
   if (!joined || screenSession || screenStarting) return;
   if (!navigator.mediaDevices?.getDisplayMedia) {
