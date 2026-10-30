@@ -20,13 +20,66 @@ function createWatchServer() {
     });
   }
 
-  // YouTube открывается в браузере официальным iframe. VPN посетителя
-  // не влияет на исходящие запросы Render к сторонним извлекателям видео.
   app.use((req, res, next) => {
     res.set('Referrer-Policy', 'strict-origin-when-cross-origin');
     next();
   });
-  // Проверять актуальность HTML/JS при каждом открытии, включая service worker.
+
+  // --- ПРОКСИ ДЛЯ YOUTUBE (Cobalt) ---
+  app.get('/api/streams/:videoId', async (req, res) => {
+    const { videoId } = req.params;
+    const url = `https://www.youtube.com/watch?v=${videoId}`;
+    
+    // Список публичных инстансов Cobalt
+    const cobaltInstances = [
+      'https://api.cobalt.tools/',
+      'https://cobalt-api.kwiatekmiki.com/',
+      'https://cobalt-api.meowing.de/',
+      'https://api.cobalt.best/'
+    ];
+
+    let lastError = '';
+
+    for (const api of cobaltInstances) {
+      try {
+        const response = await fetch(api, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify({ 
+            url: url, 
+            videoQuality: '720',
+            downloadMode: 'auto',
+            filenamePattern: 'basic'
+          })
+        });
+
+        if (!response.ok) {
+          lastError += `[${api}] Status: ${response.status}; `;
+          continue;
+        }
+
+        const data = await response.json();
+        if (data.status === 'error') {
+          lastError += `[${api}] Error: ${data.text || data.error?.code}; `;
+          continue;
+        }
+
+        if (data.url) {
+          return res.json({ video: data.url, type: 'mp4' });
+        }
+      } catch (e) {
+        lastError += `[${api}] Exception: ${e.message}; `;
+      }
+    }
+    
+    console.warn('Cobalt failed. Errors:', lastError);
+    res.status(404).json({ error: 'Не удалось найти видео', details: lastError });
+  });
+  // -----------------------------------
+
   app.use(express.static(path.join(__dirname, 'public'), { maxAge: 0 }));
   app.get('/r/:roomId', (req, res) => {
     res.set('Cache-Control', 'no-cache');
@@ -167,7 +220,6 @@ function createWatchServer() {
       io.to(socket.data.roomId).emit('reaction', { emoji });
     });
 
-    // Один демонстрирующий, отдельное адресное WebRTC-соединение с каждым зрителем.
     socket.on('rtc-start', (unused, ack) => {
       if (typeof ack !== 'function') return;
       const room = joinedRoom();
