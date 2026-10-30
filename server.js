@@ -24,24 +24,41 @@ function createWatchServer() {
   // Наш собственный прокси для обхода CORS и блокировок
 app.get('/api/streams/:videoId', async (req, res) => {
   const { videoId } = req.params;
+  
+  // Пробуем сначала Piped, потом Invidious
   const instances = [
+    'https://pipedapi.reallyaweso.me',
+    'https://pipedapi.leptons.xyz',
+    'https://pipedapi.drgns.space',
+    'https://pipedapi.ducks.party',
     'https://inv.nadeko.net',
     'https://invidious.nerdvpn.de',
-    'https://yewtu.be',
-    'https://pipedapi.kavin.rocks',
-    'https://pipedapi.adminforge.de'
+    'https://invidious.jing.rocks',
+    'https://invidious.f5.si',
+    'https://yewtu.be'
   ];
+
+  let lastError = '';
 
   for (const api of instances) {
     try {
       const isPiped = api.includes('piped');
       const url = isPiped ? `${api}/streams/${videoId}` : `${api}/api/v1/videos/${videoId}`;
       
-      const response = await fetch(url);
-      if (!response.ok) continue;
+      const response = await fetch(url, { 
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+      });
+      
+      if (!response.ok) {
+        lastError += `[${api}] Status: ${response.status}; `;
+        continue;
+      }
       
       const data = await response.json();
-      if (data.error) continue;
+      if (data.error) {
+        lastError += `[${api}] Error: ${data.error}; `;
+        continue;
+      }
       
       if (isPiped) {
         const videoStream = data.videoStreams?.find(s => s.videoOnly) || data.videoStreams?.[0];
@@ -56,11 +73,14 @@ app.get('/api/streams/:videoId', async (req, res) => {
         }
       }
     } catch (e) {
-      // Игнорируем ошибку и пробуем следующий сервер
+      lastError += `[${api}] Exception: ${e.message}; `;
     }
   }
-  res.status(404).json({ error: 'Не удалось найти видео ни на одном сервере' });
+  
+  console.warn('Прокси не смог найти видео. Ошибки:', lastError);
+  res.status(404).json({ error: 'Не удалось найти видео', details: lastError });
 });
+
   app.use(express.static(path.join(__dirname, 'public'), { maxAge: 0 }));
   app.get('/r/:roomId', (req, res) => {
     res.set('Cache-Control', 'no-cache');
