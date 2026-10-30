@@ -1,5 +1,5 @@
-const CACHE = 'wt-v3.0.0';
-const ASSETS = ['/', '/index.html', '/style.css?v=3.0.0', '/video-source.js?v=3.0.0', '/app.js?v=3.0.0', '/socket.io/socket.io.js', '/manifest.json'];
+const CACHE = 'wt-v3.0.1';
+const ASSETS = ['/', '/index.html', '/style.css?v=3.0.1', '/video-source.js?v=3.0.1', '/app.js?v=3.0.1', '/socket.io/socket.io.js', '/manifest.json'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(ASSETS)).then(() => self.skipWaiting()));
