@@ -20,54 +20,13 @@ function createWatchServer() {
     });
   }
 
+  // YouTube открывается в браузере официальным iframe. VPN посетителя
+  // не влияет на исходящие запросы Render к сторонним извлекателям видео.
+  app.use((req, res, next) => {
+    res.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+    next();
+  });
   // Проверять актуальность HTML/JS при каждом открытии, включая service worker.
-  // Наш собственный прокси для обхода CORS и блокировок
-app.get('/api/streams/:videoId', async (req, res) => {
-  const { videoId } = req.params;
-  const url = `https://www.youtube.com/watch?v=${videoId}`;
-  
-  // Используем Cobalt
-  const cobaltInstances = [
-    'https://api.cobalt.tools/api/json',
-    'https://co.wuk.sh/api/json'
-  ];
-
-  let lastError = '';
-
-  for (const api of cobaltInstances) {
-    try {
-      const response = await fetch(api, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
-        body: JSON.stringify({ url: url, vQuality: '720' })
-      });
-
-      if (!response.ok) {
-        lastError += `[${api}] Status: ${response.status}; `;
-        continue;
-      }
-
-      const data = await response.json();
-      if (data.status === 'error') {
-        lastError += `[${api}] Error: ${data.text}; `;
-        continue;
-      }
-
-      if (data.url) {
-        return res.json({ video: data.url, type: 'mp4' });
-      }
-    } catch (e) {
-      lastError += `[${api}] Exception: ${e.message}; `;
-    }
-  }
-  
-  console.warn('Прокси не смог найти видео. Ошибки:', lastError);
-  res.status(404).json({ error: 'Не удалось найти видео', details: lastError });
-});
-
   app.use(express.static(path.join(__dirname, 'public'), { maxAge: 0 }));
   app.get('/r/:roomId', (req, res) => {
     res.set('Cache-Control', 'no-cache');
