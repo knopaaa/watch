@@ -19,115 +19,51 @@ function createWatchServer() {
       credential: process.env.TURN_CREDENTIAL
     });
   }
-  // --- ПРОКСИ ДЛЯ YOUTUBE (Cobalt) ---
-  app.get('/api/streams/:videoId', async (req, res) => {
-    const { videoId } = req.params;
-    const url = `https://www.youtube.com/watch?v=${videoId}`;
-    
-    const cobaltInstances = [
-      'https://api.cobalt.tools/',
-      'https://cobalt-api.kwiatekmiki.com/',
-      'https://cobalt-api.meowing.de/'
-    ];
-
-    let lastError = '';
-
-    for (const api of cobaltInstances) {
-      try {
-        const response = await fetch(api, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-          },
-          body: JSON.stringify({ 
-            url: url, 
-            videoQuality: '720',
-            downloadMode: 'auto',
-            filenamePattern: 'basic'
-          })
-        });
-
-        if (!response.ok) {
-          lastError += `[${api}] Status: ${response.status}; `;
-          continue;
-        }
-
-        const data = await response.json();
-        if (data.status === 'error') {
-          lastError += `[${api}] Error: ${data.text || data.error?.code}; `;
-          continue;
-        }
-
-        if (data.url) {
-          return res.json({ video: data.url, type: 'mp4' });
-        }
-      } catch (e) {
-        lastError += `[${api}] Exception: ${e.message}; `;
-      }
-    }
-    
-    console.warn('Cobalt failed. Errors:', lastError);
-    res.status(404).json({ error: 'Не удалось найти видео', details: lastError });
-  });
-  // -----------------------------------
-  
-  app.use((req, res, next) => {
+   app.use((req, res, next) => {
     res.set('Referrer-Policy', 'strict-origin-when-cross-origin');
     next();
   });
 
-  // --- ПРОКСИ ДЛЯ YOUTUBE (Cobalt) ---
+  // --- ПРОКСИ ДЛЯ YOUTUBE (Invidious) ---
   app.get('/api/streams/:videoId', async (req, res) => {
     const { videoId } = req.params;
-    const url = `https://www.youtube.com/watch?v=${videoId}`;
-    
-    // Список публичных инстансов Cobalt
-    const cobaltInstances = [
-      'https://api.cobalt.tools/',
-      'https://cobalt-api.kwiatekmiki.com/',
-      'https://cobalt-api.meowing.de/',
-      'https://api.cobalt.best/'
+    const instances = [
+      'https://invidious.nerdvpn.de',
+      'https://inv.nadeko.net',
+      'https://invidious.privacyredirect.com',
+      'https://invidious.jing.rocks',
+      'https://yewtu.be'
     ];
 
     let lastError = '';
 
-    for (const api of cobaltInstances) {
+    for (const api of instances) {
       try {
-        const response = await fetch(api, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-          },
-          body: JSON.stringify({ 
-            url: url, 
-            videoQuality: '720',
-            downloadMode: 'auto',
-            filenamePattern: 'basic'
-          })
+        const response = await fetch(`${api}/api/v1/videos/${videoId}`, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
         });
-
+        
         if (!response.ok) {
           lastError += `[${api}] Status: ${response.status}; `;
           continue;
         }
-
+        
         const data = await response.json();
-        if (data.status === 'error') {
-          lastError += `[${api}] Error: ${data.text || data.error?.code}; `;
+        if (data.error) {
+          lastError += `[${api}] Error: ${data.error}; `;
           continue;
         }
-
-        if (data.url) {
-          return res.json({ video: data.url, type: 'mp4' });
+        
+        const format = data.formatStreams?.find(f => f.container === 'mp4') || data.formatStreams?.[0];
+        if (format) {
+          return res.json({ video: format.url, type: 'mp4' });
         }
       } catch (e) {
         lastError += `[${api}] Exception: ${e.message}; `;
       }
     }
     
-    console.warn('Cobalt failed. Errors:', lastError);
+    console.warn('Прокси не смог найти видео. Ошибки:', lastError);
     res.status(404).json({ error: 'Не удалось найти видео', details: lastError });
   });
   // -----------------------------------
