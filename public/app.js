@@ -595,6 +595,19 @@ async function offerViewer(id) {
   if (!localStream || !screenSession || peers.has(id) || id === socket.id) return;
   const record = ensurePeer(id);
   try {
+    // Ограничиваем битрейт, чтобы не лагало
+    const videoTrack = localStream.getVideoTracks()[0];
+    if (videoTrack) {
+      const senders = record.pc.getSenders();
+      const sender = senders.find(s => s.track === videoTrack);
+      if (sender) {
+        const params = sender.getParameters();
+        if (!params.encodings) params.encodings = [{}];
+        params.encodings[0].maxBitrate = 1500000; // 1.5 Мбит/с
+        sender.setParameters(params).catch(() => {});
+      }
+    }
+
     const offer = await record.pc.createOffer();
     if (!validPeer(record)) return;
     await record.pc.setLocalDescription(offer);
@@ -613,7 +626,7 @@ shareScreenBtn.addEventListener('click', async () => {
   let captured = null;
   const startingId = socket.id;
   try {
-    captured = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 30 } }, audio: true });
+    captured = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { max: 30 }, width: { max: 1280 }, height: { max: 720 } }, audio: true });
     if (!joined || startingId !== socket.id || !screenStarting) throw new Error('Соединение изменилось. Запусти демонстрацию заново.');
     const response = await new Promise((resolve, reject) => {
       socket.timeout(10000).emit('rtc-start', {}, (error, result) => {
