@@ -9,12 +9,25 @@
     if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) return null;
     const host = url.hostname.toLowerCase();
     const isHost = (domain) => host === domain || host.endsWith('.' + domain);
+
+    // --- YOUTUBE ---
     if (isHost('youtube.com') || isHost('youtube-nocookie.com') || host === 'youtu.be') {
       const id = host === 'youtu.be' ? url.pathname.split('/')[1]
         : url.pathname === '/watch' ? url.searchParams.get('v')
           : url.pathname.match(/^\/(?:embed|shorts|live)\/([\w-]+)/)?.[1];
       return /^[\w-]{11}$/.test(id || '') ? { type: 'youtube', id, url: url.href } : null;
     }
+
+    // --- RUTUBE ---
+    if (isHost('rutube.ru')) {
+      // Ссылки вида https://rutube.ru/video/1234567890abcdef1234567890abcdef/
+      const match = url.pathname.match(/\/video\/([a-f0-9]{32})/i);
+      if (match) {
+        return { type: 'rutube', id: match[1], url: url.href };
+      }
+    }
+
+    // --- VK VIDEO ---
     if (['vk.com', 'vk.ru', 'vkvideo.com', 'vkvideo.ru'].some(isHost)) {
       let embed;
       if (/^\/video_(?:ext|embed)\.php$/.test(url.pathname)) {
@@ -33,6 +46,8 @@
       embed.searchParams.set('autoplay', '0');
       return { type: 'vk', id: embed.href, url: url.href };
     }
+
+    // --- ПРЯМЫЕ ФАЙЛЫ ---
     if (/\.(?:mp4|webm|ogv|ogg|m4v|m3u8)$/i.test(url.pathname)) {
       return { type: 'file', id: url.href, url: url.href };
     }
