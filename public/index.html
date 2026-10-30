@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0a0f">
+  <title>Watch Together 🎬</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="stylesheet" href="/style.css?v=3.0.0">
+</head>
+<body>
+  <!-- ЭКРАН ВХОДА -->
+  <div id="login" class="login">
+    <div class="login-card">
+      <div class="login-logo">🎬</div>
+      <h1>Watch Together</h1>
+      <p class="subtitle">хорошо, что ты тут - это группа для крутых.</p>
+      <input id="nameInput" placeholder="Твоё имя" maxlength="24" autocomplete="nickname">
+      <input id="roomInput" placeholder="Код комнаты" maxlength="32" autocomplete="off">
+      <button id="joinBtn" class="btn-primary">Войти в комнату</button>
+      <p class="hint">кто прочитал - тот гей</p>
+    </div>
+  </div>
+
+  <!-- ОСНОВНОЙ ЭКРАН -->
+  <div id="app" class="app hidden">
+    <header class="topbar">
+      <div class="room-info">
+        <span class="logo">🎬</span>
+        <span id="roomLabel" class="room-label"></span>
+        <button id="copyLinkBtn" class="icon-btn" title="Скопировать ссылку">🔗</button>
+      </div>
+      <span id="connectionStatus" class="connection-status" role="status">Подключаемся…</span>
+      <span class="app-version">v3.0.0</span>
+      <div class="users" id="usersList"></div>
+      <button id="leaveBtn" class="icon-btn danger">Выйти</button>
+    </header>
+
+    <main class="main">
+      <section class="player-area">
+        <div class="url-bar">
+          <input id="urlInput" placeholder="Вставь ссылку: YouTube, VK Video или .mp4">
+          <button id="loadBtn" class="btn-primary">Загрузить</button>
+        </div>
+
+        <div class="playback-controls">
+          <span id="controlLabel">Ожидаем подключения</span>
+          <button id="takeControlBtn" class="icon-btn">Взять управление</button>
+          <button id="playerActionBtn" class="icon-btn hidden">▶ Включить просмотр</button>
+        </div>
+        <p id="notice" class="notice hidden" role="status" aria-live="polite"></p>
+
+        <div class="player-wrap" id="playerWrap">
+          <div id="playerContainer"></div>
+          <video id="screenVideo" autoplay playsinline class="hidden"></video>
+          <div id="emptyState" class="empty-state">
+            <div class="empty-emoji">🍿</div>
+            <p>Вставь ссылку сверху и нажми «Загрузить»</p>
+            <p class="small">YouTube · VK Video · mp4</p>
+          </div>
+
+          <!-- Слой для всплывающих эмодзи -->
+          <div id="emojiLayer" class="emoji-layer"></div>
+        </div>
+
+        <div class="bottom-bar">
+          <div class="reactions">
+            <button class="react-btn" data-emoji="❤️">❤️</button>
+            <button class="react-btn" data-emoji="😂">😂</button>
+            <button class="react-btn" data-emoji="😮">😮</button>
+            <button class="react-btn" data-emoji="💩">💩</button>
+            <button class="react-btn" data-emoji="😢">😢</button>
+            <button class="react-btn" data-emoji="👍">👍</button>
+            <button class="react-btn" data-emoji="🔥">🔥</button>
+            <button class="react-btn" data-emoji="💀">💀</button>
+            <button class="react-btn" data-emoji="🎉">🎉</button>
+          </div>
+          <div class="screen-controls">
+            <button id="shareScreenBtn" class="icon-btn">🖥️ Экран</button>
+            <button id="stopScreenBtn" class="icon-btn danger hidden">⏹ Стоп</button>
+          </div>
+        </div>
+      </section>
+
+      <aside class="chat" id="chatPanel">
+        <div class="chat-header">💬 Чат</div>
+        <div id="messages" class="messages"></div>
+        <div class="chat-input">
+          <input id="chatInput" placeholder="Сообщение..." maxlength="500">
+          <button id="sendBtn" class="btn-primary">➤</button>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/video-source.js?v=3.0.0"></script>
+  <script src="/app.js?v=3.0.0"></script>
+</body>
+</html>

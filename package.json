@@ -1,0 +1,19 @@
+{
+  "name": "watch-together",
+  "version": "3.0.0",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test tests/server.test.js tests/video-source.test.js",
+    "test:browser": "node --test tests/browser.test.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  },
+  "devDependencies": {
+    "playwright": "^1.64.1",
+    "socket.io-client": "^4.8.4"
+  }
+}
