@@ -290,82 +290,73 @@ async function createYouTube(id, generation) {
   wrapper.style.width = '100%';
   wrapper.style.height = '100%';
   wrapper.style.display = 'flex';
-  wrapper.style.flexDirection = 'column';
   wrapper.style.alignItems = 'center';
   wrapper.style.justifyContent = 'center';
   wrapper.style.color = '#8a8a9a';
-  wrapper.style.gap = '10px';
-  wrapper.innerHTML = '<div>Загрузка видео через Invidious... ⏳</div>';
+  wrapper.textContent = 'Загрузка видео через прокси... ⏳';
   playerContainer.appendChild(wrapper);
 
-  // Сервера Invidious, у которых открыт CORS для браузеров
-  const invidiousInstances = [
-    'https://inv.nadeko.net',
-    'https://invidious.nerdvpn.de',
-    'https://yewtu.be',
-    'https://invidious.f5.si',
-    'https://invidious.privacyredirect.com'
-  ];
-
-  let videoLoaded = false;
-
-  async function tryFetchStream(index) {
-    if (videoLoaded || generation !== playerGeneration) return;
-    if (index >= invidiousInstances.length) {
-      wrapper.innerHTML = '<div style="color:#ff5c9a; text-align:center; padding: 20px;">Ошибка: Все сервера Invidious недоступны.<br><br>Включите VPN или используйте 🖥️ Экран.</div>';
-      return;
-    }
-
-    const api = invidiousInstances[index];
-    wrapper.querySelector('div').textContent = `Загрузка... (сервер ${index + 1} из ${invidiousInstances.length})`;
+  try {
+    // Обращаемся к НАШЕМУ серверу, а не к чужим API (обходим CORS)
+    const res = await fetch(`/api/streams/${id}`);
+    if (!res.ok) throw new Error('Прокси не смог найти видео');
     
-    try {
-      const res = await fetch(`${api}/api/v1/videos/${id}`);
-      if (!res.ok) throw new Error('API Error');
+    const data = await res.json();
+    if (generation !== playerGeneration) return;
+
+    wrapper.remove(); 
+
+    const video = document.createElement('video');
+    fileVideoEl = video; 
+    currentType = 'file'; 
+    
+    video.controls = true;
+    video.playsInline = true;
+    video.crossOrigin = 'anonymous';
+    video.style.width = '100%';
+    video.style.height = '100%';
+    playerContainer.appendChild(video);
+
+    if (data.type === 'piped') {
+      // Если видео через Piped, включаем HLS (так как там видео и звук разделены)
+      if (window.Hls && Hls.isSupported()) {
+        hlsInstance = new Hls({ maxBufferLength: 30 });
+        hlsInstance.loadSource(data.video);
+        hlsInstance.attachMedia(video);
+      } else {
+        video.src = data.video;
+      }
       
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      
-      // Ищем лучший видеопоток
-      const format = data.formatStreams?.find(f => f.container === 'mp4' && f.resolution === '720p') 
-                  || data.formatStreams?.find(f => f.container === 'mp4') 
-                  || data.formatStreams?.[0];
-
-      if (!format) throw new Error('No video stream');
-      if (generation !== playerGeneration) return;
-
-      videoLoaded = true;
-      wrapper.remove(); 
-
-      const video = document.createElement('video');
-      fileVideoEl = video; 
-      currentType = 'file'; 
-      
-      video.controls = true;
-      video.playsInline = true;
-      video.crossOrigin = 'anonymous';
-      video.style.width = '100%';
-      video.style.height = '100%';
-      playerContainer.appendChild(video);
-
-      // Invidious отдает видео и звук вместе в mp4, поэтому HLS не нужен
-      video.src = format.url;
-
-      ['play', 'pause', 'seeked', 'ended'].forEach((event) => video.addEventListener(event, () => {
-        if (generation !== playerGeneration) return;
-        if (!video.paused) playerActionBtn.classList.add('hidden');
-        reportPlayback(!video.paused && !video.ended);
-      }));
-
-      video.addEventListener('loadedmetadata', () => ready(generation), { once: true });
-
-    } catch (err) {
-      console.warn(`Invidious server ${api} failed:`, err);
-      setTimeout(() => tryFetchStream(index + 1), 500); 
+      if (data.audio) {
+        const audioEl = new Audio();
+        audioEl.src = data.audio;
+        video._audioEl = audioEl; 
+        
+        video.addEventListener('play', () => { audioEl.currentTime = video.currentTime; audioEl.play(); });
+        video.addEventListener('pause', () => audioEl.pause());
+        video.addEventListener('seeked', () => { audioEl.currentTime = video.currentTime; });
+        video.addEventListener('timeupdate', () => {
+          if (Math.abs(audioEl.currentTime - video.currentTime) > 0.3) {
+            audioEl.currentTime = video.currentTime;
+          }
+        });
+      }
+    } else {
+      // Если видео через Invidious, это готовый mp4 со звуком
+      video.src = data.video;
     }
-  }
 
-  tryFetchStream(0);
+    ['play', 'pause', 'seeked', 'ended'].forEach((event) => video.addEventListener(event, () => {
+      if (generation !== playerGeneration) return;
+      if (!video.paused) playerActionBtn.classList.add('hidden');
+      reportPlayback(!video.paused && !video.ended);
+    }));
+
+    video.addEventListener('loadedmetadata', () => ready(generation), { once: true });
+
+  } catch (err) {
+    wrapper.innerHTML = '<div style="color:#ff5c9a; text-align:center; padding: 20px;">Не удалось загрузить видео.<br><br>Сервера временно недоступны. Включите VPN или используйте 🖥️ Экран.</div>';
+  }
 }
 
 async function createVK(url, generation) {
